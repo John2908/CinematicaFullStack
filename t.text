@@ -1,0 +1,209 @@
+Mru service:
+import { Injectable, BadRequestException } from '@nestjs/common';
+import { MRUDto, CalculoMRU } from './dto/Mru.dto';
+
+@Injectable()
+export class MruService {
+  calcular(dto: MRUDto) {
+    const { tipoCalculo } = dto;
+
+    switch (tipoCalculo) {
+      case CalculoMRU.VELOCIDAD:
+        if (dto.distanciaFinal == null || dto.distanciaInicial == null || dto.tiempoFinal == null || dto.tiempoInicial == null) {
+          throw new BadRequestException('Faltan datos para calcular la velocidad.');
+        }
+        const Dist = dto.distanciaFinal - dto.distanciaInicial;
+        const Time = dto.tiempoFinal - dto.tiempoInicial;
+        if (Time === 0) {
+          throw new BadRequestException('El tiempo no puede ser cero.');
+        }
+        return { resultado: Dist / Time, unidad: 'm/s' };
+
+      case CalculoMRU.POSICION_FINAL:
+        if (dto.posicionInicial == null || dto.velocidad == null || dto.tiempoFinal == null || dto.tiempoInicial == null) {
+          throw new BadRequestException('Faltan datos para calcular la posición final.');
+        }
+        const tiempoTranscurrido = dto.tiempoFinal - dto.tiempoInicial;
+        return { resultado: dto.posicionInicial + dto.velocidad * tiempoTranscurrido, unidad: 'm' };
+
+      case CalculoMRU.TIEMPO:
+        if (dto.distanciaFinal == null || dto.distanciaInicial == null || dto.velocidad == null) {
+          throw new BadRequestException('Faltan datos para calcular el tiempo.');
+        }
+        const distancia = dto.distanciaFinal - dto.distanciaInicial;
+        if (dto.velocidad === 0) {
+          throw new BadRequestException('La velocidad no puede ser cero.');
+        }
+        return { resultado: distancia / dto.velocidad, unidad: 's' };
+
+      default:
+        throw new BadRequestException('Tipo de cálculo no válido.');
+    }
+  }
+}
+
+
+2//
+
+import { Injectable, BadRequestException } from '@nestjs/common';
+import { MRUDto, CalculoMRU } from './dto/Mru.dto';
+
+@Injectable()
+export class MruService {
+  calcular(dto: MRUDto) {
+    const tipo = dto.tipoCalculo.toUpperCase();
+
+    const limpiar = (valor: string) => valor.replace(/\s+/g, '').toLowerCase();
+
+    // Convierte distancias a metros
+    const convertirDistancia = (valor: any): { metros: number, unidad: string } => {
+      if (!valor || valor === '0') return { metros: 0, unidad: 'm' };
+      const limpio = limpiar(valor);
+      const numero = parseFloat(limpio);
+      const unidad = limpio.replace(/[0-9.]/g, '');
+
+      switch (unidad) {
+        case 'km': return { metros: numero * 1000, unidad: 'km' };
+        case 'mi': return { metros: numero * 1609.34, unidad: 'mi' };
+        case 'ft': return { metros: numero * 0.3048, unidad: 'ft' };
+        case 'm':
+        default: return { metros: numero, unidad: 'm' };
+      }
+    };
+
+    // Convierte tiempo a segundos
+    const convertirTiempo = (valor: any): { segundos: number, unidad: string } => {
+      if (!valor || valor === '0') return { segundos: 0, unidad: 's' };
+      const limpio = limpiar(valor);
+      const numero = parseFloat(limpio);
+      const unidad = limpio.replace(/[0-9.]/g, '');
+
+      switch (unidad) {
+        case 'h': return { segundos: numero * 3600, unidad: 'h' };
+        case 'min': return { segundos: numero * 60, unidad: 'min' };
+        case 's':
+        default: return { segundos: numero, unidad: 's' };
+      }
+    };
+
+    // Convierte velocidad a m/s
+    const convertirVelocidad = (valor: any): { mps: number, unidad: string } => {
+      if (!valor || valor === '0') return { mps: 0, unidad: 'm/s' };
+      const limpio = limpiar(valor);
+      const numero = parseFloat(limpio);
+      const unidad = limpio.replace(/[0-9.]/g, '');
+
+      switch (unidad) {
+        case 'km/h': return { mps: numero * 1000 / 3600, unidad: 'km/h' };
+        case 'mph': return { mps: numero * 1609.34 / 3600, unidad: 'mi/h' };
+        case 'm/s':
+        default: return { mps: numero, unidad: 'm/s' };
+      }
+    };
+
+    switch (tipo) {
+      case CalculoMRU.VELOCIDAD: {
+        const { metros: d0 } = convertirDistancia(dto.distanciaInicial);
+        const { metros: d1, unidad: unidadDist } = convertirDistancia(dto.distanciaFinal);
+        const { segundos: t0 } = convertirTiempo(dto.tiempoInicial);
+        const { segundos: t1, unidad: unidadTiempo } = convertirTiempo(dto.tiempoFinal);
+
+        const distancia = d1 - d0;
+        const tiempo = t1 - t0;
+        if (tiempo === 0) throw new BadRequestException('El tiempo no puede ser cero.');
+
+        const velocidadMPS = distancia / tiempo;
+
+        // Devuelve en la unidad que usaste
+        let resultado = velocidadMPS;
+        let unidad = 'm/s';
+
+        if (unidadDist === 'km' && unidadTiempo === 'h') {
+          resultado = velocidadMPS * 3.6;
+          unidad = 'km/h';
+        } else if (unidadDist === 'mi' && unidadTiempo === 'h') {
+          resultado = velocidadMPS * 2.23694;
+          unidad = 'mi/h';
+        }
+
+        return { resultado, unidad };
+      }
+
+      case CalculoMRU.POSICION_FINAL: {
+        const { metros: x0 } = convertirDistancia(dto.posicionInicial);
+        const { mps: v } = convertirVelocidad(dto.velocidad);
+        const { segundos: t0 } = convertirTiempo(dto.tiempoInicial);
+        const { segundos: t1 } = convertirTiempo(dto.tiempoFinal);
+
+        const tiempo = t1 - t0;
+        return { resultado: x0 + v * tiempo, unidad: 'm' };
+      }
+
+      case CalculoMRU.TIEMPO: {
+        const { metros: x0 } = convertirDistancia(dto.distanciaInicial);
+        const { metros: x1 } = convertirDistancia(dto.distanciaFinal);
+        const { mps: v } = convertirVelocidad(dto.velocidad);
+
+        const distancia = x1 - x0;
+        if (v === 0) throw new BadRequestException('La velocidad no puede ser cero.');
+
+        const tiempo = distancia / v;
+        return { resultado: tiempo, unidad: 's' };
+      }
+
+      default:
+        throw new BadRequestException('Tipo de cálculo no válido.');
+    }
+  }
+}
+
+dto//
+import { IsNumber, IsOptional, IsEnum, Min, IsString } from 'class-validator';
+
+export enum CalculoMRU {
+  VELOCIDAD = 'VELOCIDAD',
+  POSICION_FINAL = 'posicion_final',
+  TIEMPO = 'tiempo',
+}
+
+export class MRUDto {
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  velocidad?: number;
+
+  @IsOptional()
+  @IsString()
+  @Min(0)
+  distanciaInicial?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  distanciaFinal?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  tiempoInicial?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  tiempoFinal?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  posicionInicial?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  posicionFinal?: number;
+
+  @IsEnum(CalculoMRU, {
+    message: 'Tipo de cálculo no valido. opciones validas: velocidad, posicion_final y tiempo',
+  })
+  tipoCalculo: CalculoMRU;
+}
